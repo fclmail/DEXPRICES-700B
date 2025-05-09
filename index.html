@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Polygon Live DEX Prices</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      background-color: #08142e;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 10px 0;
+      width: 100%;
+      max-width: 400px;
+      font-size: 1em;
+    }
+    table {
+      margin-top: 20px;
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #0c203f;
+    }
+    th, td {
+      border: 1px solid #155;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #123;
+    }
+    tr.best td {
+      background-color: #004d00;
+    }
+    tr.worst td {
+      background-color: #4d0000;
+    }
+    #wallet {
+      margin-top: 10px;
+      color: #7FDBFF;
+    }
+  </style>
+</head>
+<body>
+  <h2>🧠 Polygon Live DEX Price Viewer</h2>
+  <button onclick="connect()">🔌 Connect Wallet</button>
+  <div id="wallet">Not connected</div>
+
+  <input id="tokenAddress" placeholder="Enter ERC20 Token Address" />
+  <button onclick="fetchPrices()">Fetch Prices</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>DEX</th>
+        <th>Token per $1 USDC</th>
+      </tr>
+    </thead>
+    <tbody id="priceTable"></tbody>
+  </table>
+
+  <h3>📊 Auto Arbitrage Scanner</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Token</th>
+        <th>Buy DEX</th>
+        <th>Buy Price</th>
+        <th>Sell DEX</th>
+        <th>Sell Price</th>
+        <th>Profit ($)</th>
+      </tr>
+    </thead>
+    <tbody id="arbitrageTable"></tbody>
+  </table>
+
+  <script>
+    const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+    const USDC_DECIMALS = 6;
+
+    const DEX_ROUTERS = [
+      { name: "QuickSwap", address: "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff" },
+      { name: "SushiSwap", address: "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506" },
+      { name: "ApeSwap", address: "0xC0788A3aD43d79aa53B09c2EaCc313A787d1d607" },
+      { name: "KyberSwap", address: "0x546C79662E028B661dFB4767664d0273184E4dD1" },
+      { name: "JetSwap", address: "0x312Bc7eAAF93f1C60Dc5AfC115FcCDE161055FB0" }
+    ];
+
+    const TOKEN_LIST = [
+      { symbol: "WBTC", address: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6" },
+      { symbol: "WETH", address: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619" },
+      { symbol: "DAI", address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" },
+  { symbol: "1INCH", address: "0x9c2C5fd7b07E95EE044DDeba0E97a665F142394f" },
+  { symbol: "AAVE", address: "0xD6DF932A45C0f255f85145f286eA0b292B21C90B" },
+  { symbol: "ANKR", address: "0x101A023270368c0D50BFfb62780F4aFd4ea79C35" },
+  { symbol: "APE", address: "0xB7b31a6BC18e48888545CE79e83E06003bE70930" },
+  { symbol: "AVAX", address: "0x2C89bbc92BD86F8075d1DEcc58C7F4E0107f286b" },
+  { symbol: "BAL", address: "0x9a71012b13ca4d3d0cdc72a177df3ef03b0e76a3" },
+  { symbol: "BAT", address: "0x3Cef98bb43d732E2F285eE605a8158cDE967D219" },
+  { symbol: "BUSD", address: "0xdab529f40e671a1d4bf91361c21bf9f0c9712ab7" },
+  { symbol: "CEL", address: "0xd85d1e945766fea5eda9103f918bd915fbca63e6" },
+  { symbol: "COMP", address: "0x8505b9d2254A7Ae468c0E9dd10Ccea3A837aef5c" },
+  { symbol: "CRV", address: "0x172370d5Cd63279eFa6d502DAB29171933a610AF" },
+  { symbol: "DAI", address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" },
+  { symbol: "DIMO", address: "0xe261d618a959afffd53168cd07d12e37b26761db" },
+  { symbol: "EURS", address: "0xe111178a87a3bff0c8d18decba5798827539ae99" },
+  { symbol: "FEHU", address: "0x9699eb5ada0843f0e9bd4438930cdd5325073ede" },
+  { symbol: "FRAX", address: "0x45c32fA6DF82ead1e2EF74d17b76547EDdFaFF89" },
+  { symbol: "FRXETH", address: "0xEe327F889d5947c1dc1934Bb208a1E792F953E96" },
+  { symbol: "GHST", address: "0x385eeac5cb85a38a9a07a70c73e0a3271cfb54a7" },
+  { symbol: "GMT", address: "0x714DB550b574b3E927af3D93E26127D15721D4C2" },
+  { symbol: "GRT", address: "0x5fe2B58c013d7601147DcdD68C143A77499f5531" },
+  { symbol: "IPMB", address: "0xFF22c94FFb6bB5d1DF18bEb5fd1dFE7583D3B214" },
+  { symbol: "LDO", address: "0xC3C7d422809852031b44ab29EEC9F1EfF2A58756" },
+  { symbol: "LINK", address: "0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39" },
+  { symbol: "MANA", address: "0xA1c57f48F0Deb89f569dFbE6E2B7f46D33606fD4" },
+  { symbol: "MASK", address: "0x2B9E7ccDF0F4e5B24757c1E1a80e311E34Cb10c7" },
+  { symbol: "MATIC", address: "0x0000000000000000000000000000000000001010" },
+  { symbol: "MKR", address: "0x6f7C932e7684666C9fd1d44527765433e01fF61d" },
+  { symbol: "MOCA", address: "0xf944e35f95e819e752f3ccb5faf40957d311e8c5" },
+  { symbol: "NEXO", address: "0x41b3966B4FF7b427969ddf5da3627d6AEAE9a48E" },
+  { symbol: "OM", address: "0xC3Ec80343D2bae2F8E680FDADDe7C17E71E114ea" },
+  { symbol: "PMT", address: "0x971327539Fc22B84887EF964529E2555cBD0fe97" },
+  { symbol: "QUICK", address: "0x831753dd7087cac61ab5644b308642cc1c33dc13" },
+  { symbol: "RETH", address: "0x0266F4F08D82372CF0FcbCCc0Ff74309089c74d1" },
+  { symbol: "RNDR", address: "0x61299774020dA444Af134c82fa83E3810b309991" },
+  { symbol: "ROUTE", address: "0x16eccfdbb4ee1a85a33f3a9b21175cd7ae753db4" },
+  { symbol: "RPL", address: "0x7205705771547cF79201111B4bd8aaF29467b9eC" },
+  { symbol: "SAND", address: "0xBbba073C31bF03b8ACf7c28EF0738DeCF3695683" },
+  { symbol: "SFRXETH", address: "0x6d1FdBB266fCc09A16a22016369210A15bb95761" },
+  { symbol: "SNX", address: "0x50B728D8D964fd00C2d0AAD81718b71311feF68a" },
+  { symbol: "SOL", address: "0x7DfF46370e9eA5f0Bad3C4E29711aD50062EA7A4" },
+  { symbol: "SUPER", address: "0xa1428174F516F527fafdD146b883bB4428682737" },
+  { symbol: "SUSHI", address: "0x0b3f868e0be5597d5db7feb59e1cadbb0fdda50a" },
+  { symbol: "TEL", address: "0xdf7837de1f2fa4631d716cf2502f8b230f1dcc32" },
+  { symbol: "TUT", address: "0x0493D38CA81bD42cE0eEAC5Db220231dD836f0ad" },
+  { symbol: "UNI", address: "0xb33eaad8d922b1083446dc23f610c2567fb5180f" },
+  { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" },
+  { symbol: "USDT", address: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f" },
+  { symbol: "WBTC", address: "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6" },
+  { symbol: "WETH", address: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619" },
+  { symbol: "WOO", address: "0x1B815d120B3eF02039Ee11dC2d33DE7aA4a8C603" },
+  { symbol: "XSGD", address: "0xdc3326e71d45186f113a2f448984ca0e8d201995" },
+  { symbol: "ZRO", address: "0x6985884C4392D348587B19cb9eAAf157F13271cd" }
+    ];
+
+    let provider, signer, userAddress;
+
+    const routerABI = [
+      "function getAmountsOut(uint amountIn, address[] memory path) view returns (uint[] memory)"
+    ];
+
+    async function connect() {
+      if (!window.ethereum) return alert("Please install MetaMask.");
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+      signer = provider.getSigner();
+      userAddress = await signer.getAddress();
+      document.getElementById("wallet").innerText = `Connected: ${userAddress}`;
+    }
+
+    async function getTokenDecimals(tokenAddress) {
+      const abi = ["function decimals() view returns (uint8)"];
+      const token = new ethers.Contract(tokenAddress, abi, provider);
+      return await token.decimals();
+    }
+
+    async function fetchPrice(routerAddr, tokenAddr) {
+      try {
+        const router = new ethers.Contract(routerAddr, routerABI, provider);
+        const path = [USDC, tokenAddr];
+        const amountIn = ethers.utils.parseUnits("1", USDC_DECIMALS);
+        const out = await router.getAmountsOut(amountIn, path);
+        const tokenDecimals = await getTokenDecimals(tokenAddr);
+        return parseFloat(ethers.utils.formatUnits(out[1], tokenDecimals));
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function fetchPrices() {
+      const tokenAddr = document.getElementById("tokenAddress").value.trim();
+      if (!ethers.utils.isAddress(tokenAddr)) {
+        alert("Invalid token address.");
+        return;
+      }
+
+      const results = [];
+      for (const dex of DEX_ROUTERS) {
+        const price = await fetchPrice(dex.address, tokenAddr);
+        if (price) results.push({ ...dex, price });
+      }
+
+      const min = Math.min(...results.map(r => r.price));
+      const max = Math.max(...results.map(r => r.price));
+
+      const tbody = document.getElementById("priceTable");
+      tbody.innerHTML = "";
+      for (const r of results) {
+        const rowClass = r.price === min ? "best" : (r.price === max ? "worst" : "");
+        tbody.innerHTML += `
+          <tr class="${rowClass}">
+            <td>${r.name}</td>
+            <td>${r.price.toFixed(6)}</td>
+          </tr>`;
+      }
+    }
+
+    async function updateArbitrageTable() {
+      const table = document.getElementById("arbitrageTable");
+      table.innerHTML = "";
+      for (const token of TOKEN_LIST) {
+        const prices = [];
+        for (const dex of DEX_ROUTERS) {
+          const price = await fetchPrice(dex.address, token.address);
+          if (price) prices.push({ dex: dex.name, price });
+        }
+        if (prices.length >= 2) {
+          const buy = prices.reduce((a, b) => a.price < b.price ? a : b);
+          const sell = prices.reduce((a, b) => a.price > b.price ? a : b);
+          const profit = (sell.price - buy.price).toFixed(6);
+          table.innerHTML += `
+            <tr>
+              <td>${token.symbol}</td>
+              <td>${buy.dex}</td>
+              <td>${buy.price.toFixed(6)}</td>
+              <td>${sell.dex}</td>
+              <td>${sell.price.toFixed(6)}</td>
+              <td>${profit}</td>
+            </tr>`;
+        }
+      }
+    }
+
+    // Refresh user token fetch every 8s
+    setInterval(() => {
+      const token = document.getElementById("tokenAddress").value;
+      if (ethers.utils.isAddress(token)) fetchPrices();
+    }, 8000);
+
+    // Refresh arbitrage info every 10s
+    setInterval(updateArbitrageTable, 10000);
+  </script>
+</body>
+</html>
